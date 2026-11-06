@@ -1,0 +1,198 @@
+diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
+index 2afdfd71..69033303 100644
+--- a/apps/desktop/src/main.ts
++++ b/apps/desktop/src/main.ts
+@@ -212,6 +212,13 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+     minWidth: 520,
+     minHeight: 600,
+     show,
++    // Linux: hide the native menu bar (Alt reveals it) and set the window icon.
++    // Linux: frameless window with a slim caption row (the preload draws the window controls), window icon.
++    ...(process.platform === 'linux' ? {
++      autoHideMenuBar: true,
++      icon: join(app.getAppPath(), 'resources', 'icon-windows.png'),
++      ...(primary ? { frame: false } : {}),
++    } : {}),
+     ...(process.platform === 'win32' && primary ? {
+       titleBarStyle: 'hidden' as const,
+       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: chromeFallbackFill(),
+@@ -687,6 +694,18 @@ async function main(): Promise<void> {
+     process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', () => { refreshApplicationMenu() }, window => updateOverlays.input(window))
+   app.on('will-quit', () => { shortcuts.dispose() })
+ 
++  // Linux: window buttons drawn by the preload of the frameless main window.
++  if (process.platform === 'linux') {
++    ipcMain.on('dsh-linux:window-control', (event, action: unknown) => {
++      const window = mainWindow
++      if (window === undefined || window === null || event.sender !== window.webContents
++        || event.senderFrame !== window.webContents.mainFrame) return
++      if (action === 'close') window.close()
++      else if (action === 'minimize') window.minimize()
++      else if (action === 'maximize') { if (window.isMaximized()) window.unmaximize(); else window.maximize() }
++    })
++  }
++
+   ipcMain.handle(DESKTOP_IPC.boot, async (event) => {
+     assertDesktopSender(event, ['app'])
+     await startup
+diff --git a/apps/desktop/src/preload-platform.ts b/apps/desktop/src/preload-platform.ts
+index 1e197b0c..caf92803 100644
+--- a/apps/desktop/src/preload-platform.ts
++++ b/apps/desktop/src/preload-platform.ts
+@@ -2,13 +2,18 @@
+ 
+ import { ipcRenderer } from 'electron'
+ import { DESKTOP_IPC } from './ipc.ts'
++import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
+ 
+ /**
+  * Sets `data-platform` (e.g. `darwin`) on `<html>`, deferring to DOMContentLoaded
+  * when the preload runs before the document root exists.
+  */
+ export function markDocumentPlatform(): void {
+-  const mark = (): void => { document.documentElement.dataset.platform = process.platform }
++  const mark = (): void => {
++    document.documentElement.dataset.platform = process.platform
++    // Linux: frameless window with a slim caption row (same layout as the Windows titlebar).
++    if (process.platform === 'linux') installLinuxWindowChrome()
++  }
+   // lib.dom types documentElement non-null, but a preload runs before the
+   // document root exists.
+   const root = document.documentElement as HTMLElement | null
+@@ -31,3 +36,60 @@ export function syncWindowFullscreen(): void {
+     else delete root.dataset.fullscreen
+   })
+ }
++
++const LINUX_CHROME_CSS = `
++html[data-linux-chrome], html[data-linux-chrome] body { background: var(--dsw-alias-bg-base); }
++html[data-linux-chrome] :is(button, a, input, select, textarea, [role='button'], [role='tab'], [contenteditable='true']) {
++  -webkit-app-region: no-drag;
++}
++#dsh-linux-window-controls {
++  position: fixed; top: 0; right: 0; z-index: 1100; height: var(--dsh-windows-titlebar-height);
++  display: flex; align-items: center; gap: 2px; padding-right: 6px; -webkit-app-region: no-drag;
++}
++#dsh-linux-window-controls button {
++  width: 32px; height: 28px; border: 0; border-radius: 6px; padding: 0; margin: 0;
++  display: grid; place-items: center; background: transparent; cursor: default;
++  color: var(--dsw-alias-label-secondary); -webkit-app-region: no-drag;
++}
++#dsh-linux-window-controls button:hover {
++  background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary);
++}
++#dsh-linux-window-controls button.close:hover { background: #e5484d; color: #fff; }
++#dsh-linux-window-controls svg { width: 14px; height: 14px; }
++html[data-fullscreen] #dsh-linux-window-controls { display: none; }
++`
++
++const LINUX_CONTROL_ICONS: Record<string, string> = {
++  minimize: '<path d="M3.5 5.5 7 9l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
++  maximize: '<path d="M7 2.5 11.5 7 7 11.5 2.5 7z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
++  close: '<path d="m3.5 3.5 7 7m0-7-7 7" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>',
++}
++
++/** Linux: caption row marker, sidebar-coloured background and minimize / maximize / close controls. */
++function installLinuxWindowChrome(): void {
++  const root = document.documentElement
++  if (root.hasAttribute('data-linux-chrome')) return
++  root.setAttribute('data-linux-chrome', '')
++  root.dataset.windowsTitlebar = ''
++  root.style.setProperty('--dsh-windows-titlebar-height', `${WINDOWS_TITLEBAR_HEIGHT}px`)
++  const install = (): void => {
++    const style = document.createElement('style')
++    style.textContent = LINUX_CHROME_CSS
++    document.head.append(style)
++    const bar = document.createElement('div')
++    bar.id = 'dsh-linux-window-controls'
++    for (const action of ['minimize', 'maximize', 'close']) {
++      const button = document.createElement('button')
++      button.type = 'button'
++      button.className = action
++      button.title = action === 'minimize' ? 'Minimize' : action === 'maximize' ? 'Maximize' : 'Close'
++      button.setAttribute('aria-label', button.title)
++      button.innerHTML = `<svg viewBox="0 0 14 14" aria-hidden="true">${LINUX_CONTROL_ICONS[action]}</svg>`
++      button.addEventListener('click', () => { ipcRenderer.send('dsh-linux:window-control', action) })
++      bar.append(button)
++    }
++    document.body.append(bar)
++  }
++  if (document.body === null) window.addEventListener('DOMContentLoaded', install)
++  else install()
++}
+diff --git a/packages/client/ui-layout/src/client/AppFrame.module.css b/packages/client/ui-layout/src/client/AppFrame.module.css
+index 5b71ebec..d80fa715 100644
+--- a/packages/client/ui-layout/src/client/AppFrame.module.css
++++ b/packages/client/ui-layout/src/client/AppFrame.module.css
+@@ -288,3 +288,34 @@
+ .overlayLayer > * {
+   pointer-events: auto;
+ }
++
++/* Linux desktop (frameless window): flat caption, sidebar slightly lighter than the content,
++   and one divider running from the top edge to the bottom edge. */
++:global([data-linux-chrome]) .frame {
++  --dsh-windows-content-radius: 0;
++  --dsh-linux-sidebar-fill: color-mix(in srgb, var(--dsw-alias-bg-base) 96%, var(--dsw-alias-label-primary));
++  background: var(--dsw-alias-bg-base);
++}
++
++:global([data-linux-chrome]) .frame::before {
++  background:
++    linear-gradient(var(--dsw-alias-border-l3), var(--dsw-alias-border-l3))
++      calc(var(--dsh-windows-sidebar-width, 0px) - 1px) 0 / 1px 100% no-repeat,
++    linear-gradient(var(--dsh-linux-sidebar-fill), var(--dsh-linux-sidebar-fill))
++      0 0 / var(--dsh-windows-sidebar-width, 0px) 100% no-repeat,
++    var(--dsw-alias-bg-base);
++}
++
++:global([data-linux-chrome]) .frame[data-sidebar-collapsed]::before {
++  background: var(--dsw-alias-bg-base);
++}
++
++:global([data-linux-chrome]) .sidebarCol {
++  --dsw-specific-sidebar-fill: var(--dsh-linux-sidebar-fill);
++  background: var(--dsh-linux-sidebar-fill);
++  border-right: 1px solid var(--dsw-alias-border-l3);
++}
++
++:global([data-linux-chrome]) .centerCol {
++  border-radius: 0;
++}
+diff --git a/packages/client/ui-sidebar/src/client/SidebarRoot.module.css b/packages/client/ui-sidebar/src/client/SidebarRoot.module.css
+index f615b3c6..65e39277 100644
+--- a/packages/client/ui-sidebar/src/client/SidebarRoot.module.css
++++ b/packages/client/ui-sidebar/src/client/SidebarRoot.module.css
+@@ -626,3 +626,16 @@
+     animation: none;
+   }
+ }
++
++/* Linux desktop: flat sidebar without the brand row; the toggle stays in the caption. */
++:global([data-linux-chrome]) .root {
++  background: transparent;
++}
++
++:global([data-linux-chrome]) .root .logoRow {
++  height: 0;
++}
++
++:global([data-linux-chrome]) .root:not(.collapsed) .brand {
++  display: none;
++}
+diff --git a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.module.css b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.module.css
+index ce49fcb4..ced68b02 100644
+--- a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.module.css
++++ b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.module.css
+@@ -342,6 +342,11 @@
+   display: none;
+ }
+ 
++/* Linux desktop: flat sidebar, no bottom fade. */
++:global([data-linux-chrome]) .fade {
++  display: none;
++}
++
+ /* Wide-only content fades back in on expand remount (mirrors the shell). */
+ .wide {
+   animation: wide-in 200ms var(--ds-ease-in-out);
