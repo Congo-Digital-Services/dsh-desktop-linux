@@ -28,6 +28,15 @@ jobs:
           DSH_DESKTOP_SRC: ${{ runner.temp }}/dsh-src
         run: ./build.sh --appimage
 
+      - name: Show the failing packaging step
+        if: failure()
+        env:
+          DSH_DESKTOP_SRC: ${{ runner.temp }}/dsh-src
+        run: |
+          for f in $(ls -dt "$DSH_DESKTOP_SRC"/apps/desktop/.desktop-build/packaging-runs/*/ 2>/dev/null | head -1)*; do
+            echo "::group::$f"; tail -n 80 "$f" 2>/dev/null || true; echo "::endgroup::"
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: dsh-desktop-appimage
