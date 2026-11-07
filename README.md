@@ -29,6 +29,22 @@ Community Linux build of the **DSH Desktop** app, built on [DeepSeek Harness](ht
   English, or in French when your locale is French.
 - **Shared data with the `dsh` CLI** (`~/.dsh`): sessions, settings and skills.
 
+## Download
+
+Get the latest `dsh-desktop-…-linux-x86_64.AppImage` from the
+[Releases page](https://github.com/Congo-Digital-Services/dsh-desktop-linux/releases), then:
+
+```bash
+chmod +x dsh-desktop-*-linux-x86_64.AppImage
+./dsh-desktop-*-linux-x86_64.AppImage
+```
+
+On Ubuntu 22.04 and later, AppImages need `libfuse2` (`sudo apt install libfuse2`; on 24.04 the package is
+`libfuse2t64`). The AppImage is self-contained: it doesn't need Node.js, the build tools below or `install.sh`.
+It doesn't include the notification plugin either, so install that from a source build if you want it.
+
+To build it yourself instead, read on.
+
 ## Requirements
 
 - Linux x86_64. Tested on Debian 12 under GNOME (Wayland).
@@ -90,7 +106,7 @@ Your sessions and settings in `~/.dsh` are kept.
 - **It is a development-mode build.** The app shows "DSH Local Build" and has no auto-update.
 - **Debug ports are open on localhost**: 9229, 9222 and 9230. Upstream development mode opens them, and they are bound
   to `127.0.0.1` only.
-- **There is no `.deb` or AppImage packaging yet.** The upstream packager supports macOS and Windows only.
+- **There is no `.deb` package yet**, only the AppImage. It has no auto-update: download new releases by hand.
 - **Only x86_64 has been tested.**
 
 ## License
