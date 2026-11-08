@@ -9,7 +9,7 @@ Community Linux build of the **DSH Desktop** app, built on [DeepSeek Harness](ht
 
 ## What you get
 
-- **The desktop app on Linux**, built from an upstream release tag with two small patches:
+- **The desktop app on Linux**, built from an upstream release tag with a few small patches:
   - `0001-allow-linux-x64-target.patch` lets the launcher accept the `linux-x64` target. Upstream already has a Linux
     runtime for this target, but its launcher refuses it.
   - `0002-linux-frameless-caption-bar.patch` replaces the system title bar with a slim caption row and gives the window
@@ -20,10 +20,14 @@ Community Linux build of the **DSH Desktop** app, built on [DeepSeek Harness](ht
     - no brand row at the top of the sidebar;
     - no native menu bar (press <kbd>Alt</kbd> to show it);
     - a window icon.
+  - `0004-linux-notification-opens-session.patch` lets a notification open its session. The app listens on a private
+    socket, `$XDG_RUNTIME_DIR/dsh-desktop-linux/open-session.sock`, readable only by you.
 - **A menu entry** called **DSH Desktop**, with its own icon.
 - **Desktop notifications** (optional) through `notify-send`:
   - when a task finishes, fails or gets blocked;
   - when the agent waits for your approval.
+
+  In DSH Desktop, clicking a notification (or its **Open** button) brings the window forward on that session.
 
   Subagent tasks don't trigger notifications. The plugin also works with the `dsh` web UI and the CLI. Messages are in
   English, or in French when your locale is French.

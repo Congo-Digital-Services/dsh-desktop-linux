@@ -1,0 +1,149 @@
+diff --git a/apps/desktop/src/linux-ipc.ts b/apps/desktop/src/linux-ipc.ts
+new file mode 100644
+index 00000000..2cca303d
+--- /dev/null
++++ b/apps/desktop/src/linux-ipc.ts
+@@ -0,0 +1,2 @@
++/** Linux community build: IPC channel the main process uses to hand a Session id to the main window preload. */
++export const LINUX_OPEN_SESSION_IPC = 'dsh-linux:open-session'
+diff --git a/apps/desktop/src/linux-open-session.ts b/apps/desktop/src/linux-open-session.ts
+new file mode 100644
+index 00000000..7df49011
+--- /dev/null
++++ b/apps/desktop/src/linux-open-session.ts
+@@ -0,0 +1,60 @@
++/** Linux community build: a private local socket that lets a desktop notification open the Session it reports. */
++
++import { chmodSync, mkdirSync, rmSync } from 'node:fs'
++import { createServer, type Server } from 'node:net'
++import { join } from 'node:path'
++
++const SESSION_ID = /^[\w.:-]{1,200}$/
++const MAX_REQUEST_BYTES = 512
++
++/**
++ * Socket path shared with the notification plugin: `$XDG_RUNTIME_DIR/dsh-desktop-linux/open-session.sock`.
++ * @param environment - process environment.
++ * @returns the path, or undefined without a per-user runtime directory.
++ */
++export function linuxOpenSessionSocketPath(environment: NodeJS.ProcessEnv = process.env): string | undefined {
++  const runtime = environment.XDG_RUNTIME_DIR
++  return runtime === undefined || runtime === '' ? undefined : join(runtime, 'dsh-desktop-linux', 'open-session.sock')
++}
++
++/**
++ * Listen for `<session id>\n` requests and pass each valid id to `open`.
++ * The caller must own the Desktop single-instance lock, so a socket left by a crashed run is safe to replace.
++ * @param open - shows the Session in the main window.
++ * @returns a disposer, or undefined when the socket cannot be created.
++ */
++export function listenLinuxOpenSession(open: (sessionId: string) => void): (() => void) | undefined {
++  const path = linuxOpenSessionSocketPath()
++  if (path === undefined) return undefined
++  const directory = join(path, '..')
++  let server: Server
++  try {
++    mkdirSync(directory, { recursive: true, mode: 0o700 })
++    chmodSync(directory, 0o700)
++    rmSync(path, { force: true })
++    server = createServer((socket) => {
++      let request = ''
++      socket.setEncoding('utf8')
++      socket.setTimeout(2000, () => { socket.destroy() })
++      socket.on('data', (chunk: string) => {
++        request += chunk
++        if (request.length > MAX_REQUEST_BYTES) { socket.destroy(); return }
++        const end = request.indexOf('\n')
++        if (end === -1) return
++        const sessionId = request.slice(0, end).trim()
++        socket.end()
++        if (SESSION_ID.test(sessionId)) open(sessionId)
++      })
++      socket.on('error', () => {})
++    })
++    server.on('error', (error) => { console.warn('dsh-linux: open-session socket failed:', error) })
++    server.listen(path, () => { try { chmodSync(path, 0o600) } catch { /* the directory is already private */ } })
++  } catch (error: unknown) {
++    console.warn('dsh-linux: open-session socket unavailable:', error)
++    return undefined
++  }
++  return () => {
++    server.close()
++    rmSync(path, { force: true })
++  }
++}
+diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
+index 69033303..d8054bd0 100644
+--- a/apps/desktop/src/main.ts
++++ b/apps/desktop/src/main.ts
+@@ -33,6 +33,8 @@ import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdateState } fro
+ import { readDeviceInfo } from './device-info.ts'
+ import { desktopUpdateReadyConfirmation, formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale } from './locale.ts'
+ import { claimDesktopSingleInstance } from './single-instance.ts'
++import { listenLinuxOpenSession } from './linux-open-session.ts'
++import { LINUX_OPEN_SESSION_IPC } from './linux-ipc.ts'
+ import { desktopUpdateChannel } from './update-channel.ts'
+ import { DesktopUpdateCoordinator } from './update-coordinator.ts'
+ import { DesktopCommandManager } from './command-management.ts'
+@@ -703,7 +705,15 @@ async function main(): Promise<void> {
+       if (action === 'close') window.close()
+       else if (action === 'minimize') window.minimize()
+       else if (action === 'maximize') { if (window.isMaximized()) window.unmaximize(); else window.maximize() }
++    })    // A click on a desktop notification asks, through a private local socket, to show its Session.
++    const stopOpenSession = listenLinuxOpenSession((sessionId) => {
++      focusPrimaryWindow()
++      const window = mainWindow
++      if (window !== undefined && window !== null && !window.isDestroyed()) {
++        window.webContents.send(LINUX_OPEN_SESSION_IPC, sessionId)
++      }
+     })
++    if (stopOpenSession !== undefined) app.on('will-quit', stopOpenSession)
+   }
+ 
+   ipcMain.handle(DESKTOP_IPC.boot, async (event) => {
+diff --git a/apps/desktop/src/preload-platform.ts b/apps/desktop/src/preload-platform.ts
+index caf92803..d410f643 100644
+--- a/apps/desktop/src/preload-platform.ts
++++ b/apps/desktop/src/preload-platform.ts
+@@ -3,6 +3,7 @@
+ import { ipcRenderer } from 'electron'
+ import { DESKTOP_IPC } from './ipc.ts'
+ import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
++import { LINUX_OPEN_SESSION_IPC } from './linux-ipc.ts'
+ 
+ /**
+  * Sets `data-platform` (e.g. `darwin`) on `<html>`, deferring to DOMContentLoaded
+@@ -14,6 +15,12 @@ export function markDocumentPlatform(): void {
+     // Linux: frameless window with a slim caption row (same layout as the Windows titlebar).
+     if (process.platform === 'linux') installLinuxWindowChrome()
+   }
++  // Linux: a notification click names a Session; the Web UI opens it from a same-window message.
++  if (process.platform === 'linux') {
++    ipcRenderer.on(LINUX_OPEN_SESSION_IPC, (_event, sessionId: unknown) => {
++      if (typeof sessionId === 'string') window.postMessage({ type: LINUX_OPEN_SESSION_IPC, sessionId }, window.location.origin)
++    })
++  }
+   // lib.dom types documentElement non-null, but a preload runs before the
+   // document root exists.
+   const root = document.documentElement as HTMLElement | null
+diff --git a/packages/client/ui-workspace/src/client/index.ts b/packages/client/ui-workspace/src/client/index.ts
+index cc9da072..1cc8dc5a 100644
+--- a/packages/client/ui-workspace/src/client/index.ts
++++ b/packages/client/ui-workspace/src/client/index.ts
+@@ -156,6 +156,16 @@ export function apply(ctx: Context): void {
+   const openSession: WorkspaceBrowserInjected['open'] = (sessionId) => {
+     uiWorkspace.openSession(sessionId)
+   }
++  // Linux community build: the desktop preload forwards a notification click as a same-window message.
++  ctx.effect(() => {
++    const onMessage = (event: MessageEvent): void => {
++      const data = event.data as { readonly type?: unknown; readonly sessionId?: unknown } | null
++      if (event.source !== window || data?.type !== 'dsh-linux:open-session' || typeof data.sessionId !== 'string') return
++      openSession(data.sessionId as SessionId)
++    }
++    window.addEventListener('message', onMessage)
++    return () => { window.removeEventListener('message', onMessage) }
++  }, 'ui-workspace: linux notification open')
+   // Registry-global sets as Sets, rebuilt only when the Workspace snapshot changes.
+   const pinnedSet = derive(workspaces.list, snapshot => new Set<SessionId>(snapshot.pinnedSessionIds))
+   const archivedSet = derive(workspaces.list, snapshot => new Set<SessionId>(snapshot.archivedSessionIds))
