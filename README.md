@@ -93,7 +93,7 @@ Keep this file private: `chmod 600 ~/.config/dsh-desktop-linux/env`.
 ```bash
 git pull                                # newer patches / pinned tag (see UPSTREAM_TAG)
 ./build.sh && ./install.sh
-DSH_TAG=dsh-v0.2.2-rc.1 ./build.sh      # or try another upstream tag (patches may need an update)
+DSH_TAG=<upstream-tag> ./build.sh        # or try another upstream tag (patches may need an update)
 ```
 
 ## Uninstall

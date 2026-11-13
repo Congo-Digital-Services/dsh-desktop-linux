@@ -1,8 +1,8 @@
 diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
-index 2afdfd71..69033303 100644
+index 8f9cd823..cebc30f5 100644
 --- a/apps/desktop/src/main.ts
 +++ b/apps/desktop/src/main.ts
-@@ -212,6 +212,13 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -268,6 +268,13 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
      minWidth: 520,
      minHeight: 600,
      show,
@@ -14,9 +14,9 @@ index 2afdfd71..69033303 100644
 +      ...(primary ? { frame: false } : {}),
 +    } : {}),
      ...(process.platform === 'win32' && primary ? {
+       backgroundColor: chromeFallbackFill(),
        titleBarStyle: 'hidden' as const,
-       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: chromeFallbackFill(),
-@@ -687,6 +694,18 @@ async function main(): Promise<void> {
+@@ -818,6 +825,18 @@ async function main(): Promise<void> {
      process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', () => { refreshApplicationMenu() }, window => updateOverlays.input(window))
    app.on('will-quit', () => { shortcuts.dispose() })
  
@@ -121,10 +121,10 @@ index 1e197b0c..caf92803 100644
 +  else install()
 +}
 diff --git a/packages/client/ui-layout/src/client/AppFrame.module.css b/packages/client/ui-layout/src/client/AppFrame.module.css
-index 5b71ebec..d80fa715 100644
+index dd4a89c8..2de9cb2f 100644
 --- a/packages/client/ui-layout/src/client/AppFrame.module.css
 +++ b/packages/client/ui-layout/src/client/AppFrame.module.css
-@@ -288,3 +288,34 @@
+@@ -370,3 +370,34 @@
  .overlayLayer > * {
    pointer-events: auto;
  }
@@ -160,10 +160,10 @@ index 5b71ebec..d80fa715 100644
 +  border-radius: 0;
 +}
 diff --git a/packages/client/ui-sidebar/src/client/SidebarRoot.module.css b/packages/client/ui-sidebar/src/client/SidebarRoot.module.css
-index f615b3c6..65e39277 100644
+index 3d2e7aa6..402116c7 100644
 --- a/packages/client/ui-sidebar/src/client/SidebarRoot.module.css
 +++ b/packages/client/ui-sidebar/src/client/SidebarRoot.module.css
-@@ -626,3 +626,16 @@
+@@ -842,3 +842,21 @@
      animation: none;
    }
  }
@@ -180,19 +180,8 @@ index f615b3c6..65e39277 100644
 +:global([data-linux-chrome]) .root:not(.collapsed) .brand {
 +  display: none;
 +}
-diff --git a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.module.css b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.module.css
-index ce49fcb4..ced68b02 100644
---- a/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.module.css
-+++ b/packages/client/ui-workspace/src/client/rows/WorkspaceBrowser.module.css
-@@ -342,6 +342,11 @@
-   display: none;
- }
- 
++
 +/* Linux desktop: flat sidebar, no bottom fade. */
-+:global([data-linux-chrome]) .fade {
++:global([data-linux-chrome]) .scrollFade {
 +  display: none;
 +}
-+
- /* Wide-only content fades back in on expand remount (mirrors the shell). */
- .wide {
-   animation: wide-in 200ms var(--ds-ease-in-out);
