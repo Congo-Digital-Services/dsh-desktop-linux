@@ -279,8 +279,8 @@ index a0698880..42381aab 100644
 +      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:linux-office-engine-probe', async () => {
 +        const probe = '{ throwIfNoEntry: false }) !== void 0'
 +        let patched = 0
-+        for (const [name, file] of [['libreoffice-kit', 'index.js'], ['libreoffice-kit', 'cli.js'], ['dsh-office-kit', 'index.js']]) {
-+          const path = join(DSH_OUTPUT_ROOT, 'node_modules', '@deepseek-ai', name, 'lib', file)
++        // Each file carries the same probe; Electron's asar lstatSync() returns null for a missing path.
++        for (const path of ['libreoffice-kit/lib/index.js', 'libreoffice-kit/lib/cli.js', 'dsh-office-kit/lib/index.js'].map(file => join(DSH_OUTPUT_ROOT, 'node_modules', '@deepseek-ai', file))) {
 +          if (!existsSync(path)) continue
 +          const source = readFileSync(path, 'utf8')
 +          if (!source.includes(probe)) continue
